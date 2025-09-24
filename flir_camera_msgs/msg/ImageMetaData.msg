@@ -15,5 +15,6 @@ uint32 exposure_time
 # max allowed exposure time in microseconds
 uint32 max_exposure_time
 
+uint8 line_status
 # gain in db
 float32 gain

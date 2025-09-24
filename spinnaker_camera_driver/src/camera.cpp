@@ -671,6 +671,7 @@ void Camera::doPublish(const ImageConstPtr & im)
     metaMsg_.max_exposure_time = im->maxExposureTime_;
     metaMsg_.gain = im->gain_;
     metaMsg_.camera_time = im->imageTime_;
+    metaMsg_.line_status = im->lineStatus_;
     metaPub_->publish(metaMsg_);
   }
 }
