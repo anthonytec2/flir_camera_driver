@@ -318,10 +318,9 @@ std::string SpinnakerWrapperImpl::getIEEE1588Status() const
   const auto it = clockStatusMap.find(ptpStatus_);
   return (it == clockStatusMap.end() ? "INV" : it->second);
 }
-
 void SpinnakerWrapperImpl::OnImageEvent(Spinnaker::ImagePtr imgPtr)
 {
-  // update frame rate
+  // update frame rate timing
   auto now = chrono::high_resolution_clock::now();
   const uint64_t t = chrono::duration_cast<chrono::nanoseconds>(now.time_since_epoch()).count();
   if (avgTimeInterval_ == 0) {
@@ -337,61 +336,76 @@ void SpinnakerWrapperImpl::OnImageEvent(Spinnaker::ImagePtr imgPtr)
     std::unique_lock<std::mutex> lock(mutex_);
     lastTime_ = t;
   }
+
   numImagesTotal_++;
   if (imgPtr->IsIncomplete()) {
     numIncompleteImages_++;
     numIncompleteImagesTotal_++;
-  } else {
-    float expTime = 0;
-    float gain = 0;
-    int64_t stamp = 0;
-    uint8_t lineStatus = 0;
-
-    try {
-      const Spinnaker::ChunkData & chunk = imgPtr->GetChunkData();
-      expTime = chunk.GetExposureTime();
-      gain = chunk.GetGain();
-      stamp = chunk.GetTimestamp();
-      lineStatus = chunk.GetExposureEndLineStatusAll();
-
-    } catch (const Spinnaker::Exception & e) {
-      // Without chunk data enabled there is no way to get e.g. the time stamps. Bad!
-      // Spinnaker: Image does not contain chunk data. [-1001]
-    }
-    const uint32_t maxExpTime =
-      static_cast<uint32_t>(is_readable(exposureTimeNode_) ? exposureTimeNode_->GetMax() : 0);
-    if (useIEEE1588_) {
-      ptpStatus_ = camera_->GevIEEE1588Status();
-    }
-#if 0
-    std::cout << "got image: " << imgPtr->GetWidth() << "x" << imgPtr->GetHeight()
-              << " stride: " << imgPtr->GetStride() << " ts: " << stamp << " exp time: " << expTime
-              << " gain: " << gain << " bpp: " << imgPtr->GetBitsPerPixel()
-              << " chan: " << imgPtr->GetNumChannels()
-              << " tl payload type: " << imgPtr->GetTLPayloadType()
-              << " tl pix fmt: " << imgPtr->GetTLPixelFormat()
-              << " payload type: " << imgPtr->GetPayloadType()
-              << " pixfmt: " << imgPtr->GetPixelFormat() << "(" << imgPtr->GetPixelFormatName()
-              << ") int type: " << imgPtr->GetPixelFormatIntType()
-              << " frame id: " << imgPtr->GetFrameID() << " img id: " << imgPtr->GetID()
-              << " clock: " << getIEEE1588Status() << std::endl;
-#endif
-    // Note: GetPixelFormat() did not work for the grasshopper, so ignoring
-    // pixel format in image, using the one from the configuration
-    const int16_t brightness =
-      computeBrightness_
-        ? compute_brightness(
-            pixelFormat_, static_cast<const uint8_t *>(imgPtr->GetData()), imgPtr->GetWidth(),
-            imgPtr->GetHeight(), imgPtr->GetStride(), brightnessSkipPixels_)
-        : -1;
-    ImagePtr img(new Image(
-      t, brightness, expTime, maxExpTime, gain, stamp, imgPtr->GetImageSize(),
-      imgPtr->GetImageStatus(), imgPtr->GetData(), imgPtr->GetWidth(), imgPtr->GetHeight(),
-      imgPtr->GetStride(), imgPtr->GetBitsPerPixel(), imgPtr->GetNumChannels(),
-      imgPtr->GetFrameID(), pixelFormat_, numIncompleteImages_, lineStatus));
-    numIncompleteImages_ = 0;
-    callback_(img);
+    return;
   }
+
+  float expTime = 0;
+  float gain = 0;
+  int64_t stamp = 0;
+  uint8_t lineStatus = 0;
+
+  try {
+    const Spinnaker::ChunkData& chunk = imgPtr->GetChunkData();
+    expTime = chunk.GetExposureTime();
+    gain = chunk.GetGain();
+    stamp = chunk.GetTimestamp();
+
+    // --- only works for cameras that support chunk line status (e.g. Blackfly S)
+    if (GenApi::IsReadable(camera_->GetNodeMap().GetNode("ChunkExposureEndLineStatusAll"))) {
+      lineStatus = chunk.GetExposureEndLineStatusAll();
+    } else {
+      // fallback for cameras like AX5: read LineStatus node directly
+      auto& nodeMap = camera_->GetNodeMap();
+      GenApi::CEnumerationPtr lineSelector = nodeMap.GetNode("LineSelector");
+      if (GenApi::IsWritable(lineSelector)) {
+        // choose desired GPIO line, e.g. Line0
+        lineSelector->FromString("Line0");
+      }
+      GenApi::CBooleanPtr lineStatusNode = nodeMap.GetNode("LineStatus");
+      if (GenApi::IsReadable(lineStatusNode)) {
+        lineStatus = lineStatusNode->GetValue() ? 1 : 0;
+      }
+    }
+
+  } catch (const Spinnaker::Exception& e) {
+    // no chunk data or unsupported feature
+    auto& nodeMap = camera_->GetNodeMap();
+    GenApi::CEnumerationPtr lineSelector = nodeMap.GetNode("LineSelector");
+    if (GenApi::IsWritable(lineSelector)) {
+      lineSelector->FromString("Line0");
+    }
+    GenApi::CBooleanPtr lineStatusNode = nodeMap.GetNode("LineStatus");
+    if (GenApi::IsReadable(lineStatusNode)) {
+      lineStatus = lineStatusNode->GetValue() ? 1 : 0;
+    }
+  }
+
+  const uint32_t maxExpTime =
+    static_cast<uint32_t>(is_readable(exposureTimeNode_) ? exposureTimeNode_->GetMax() : 0);
+  if (useIEEE1588_) {
+    ptpStatus_ = camera_->GevIEEE1588Status();
+  }
+
+  const int16_t brightness =
+    computeBrightness_
+      ? compute_brightness(
+          pixelFormat_, static_cast<const uint8_t*>(imgPtr->GetData()), imgPtr->GetWidth(),
+          imgPtr->GetHeight(), imgPtr->GetStride(), brightnessSkipPixels_)
+      : -1;
+
+  ImagePtr img(new Image(
+    t, brightness, expTime, maxExpTime, gain, stamp, imgPtr->GetImageSize(),
+    imgPtr->GetImageStatus(), imgPtr->GetData(), imgPtr->GetWidth(), imgPtr->GetHeight(),
+    imgPtr->GetStride(), imgPtr->GetBitsPerPixel(), imgPtr->GetNumChannels(),
+    imgPtr->GetFrameID(), pixelFormat_, numIncompleteImages_, lineStatus));
+
+  numIncompleteImages_ = 0;
+  callback_(img);
 }
 
 bool SpinnakerWrapperImpl::initCamera(const std::string & serialNumber)
