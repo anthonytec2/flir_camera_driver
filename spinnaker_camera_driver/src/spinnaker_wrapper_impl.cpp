@@ -350,40 +350,55 @@ void SpinnakerWrapperImpl::OnImageEvent(Spinnaker::ImagePtr imgPtr)
   uint8_t lineStatus = 0;
 
   try {
-    const Spinnaker::ChunkData& chunk = imgPtr->GetChunkData();
-    expTime = chunk.GetExposureTime();
-    gain = chunk.GetGain();
-    stamp = chunk.GetTimestamp();
+        // Try to read from chunk data (works for cameras like Blackfly S)
+        const Spinnaker::ChunkData& chunk = imgPtr->GetChunkData();
+        expTime = chunk.GetExposureTime();
+        gain = chunk.GetGain();
+        stamp = chunk.GetTimestamp();
 
-    // --- only works for cameras that support chunk line status (e.g. Blackfly S)
-    if (GenApi::IsReadable(camera_->GetNodeMap().GetNode("ChunkExposureEndLineStatusAll"))) {
-      lineStatus = chunk.GetExposureEndLineStatusAll();
-    } else {
-      // fallback for cameras like AX5: read LineStatus node directly
-      auto& nodeMap = camera_->GetNodeMap();
-      GenApi::CEnumerationPtr lineSelector = nodeMap.GetNode("LineSelector");
-      if (GenApi::IsWritable(lineSelector)) {
-        // choose desired GPIO line, e.g. Line0
-        lineSelector->FromString("Line0");
-      }
-      GenApi::CBooleanPtr lineStatusNode = nodeMap.GetNode("LineStatus");
-      if (GenApi::IsReadable(lineStatusNode)) {
-        lineStatus = lineStatusNode->GetValue() ? 1 : 0;
-      }
-    }
+        if (GenApi::IsReadable(camera_->GetNodeMap().GetNode("ChunkExposureEndLineStatusAll"))) {
+            lineStatus = chunk.GetExposureEndLineStatusAll();
+        } else {
+            auto& nodeMap = camera_->GetNodeMap();
+            GenApi::CEnumerationPtr lineSelector = nodeMap.GetNode("LineSelector");
+            if (GenApi::IsWritable(lineSelector)) {
+                lineSelector->FromString("Line0");
+            }
+            GenApi::CBooleanPtr lineStatusNode = nodeMap.GetNode("LineStatus");
+            if (GenApi::IsReadable(lineStatusNode)) {
+                lineStatus = lineStatusNode->GetValue() ? 1 : 0;
+            }
+        }
 
-  } catch (const Spinnaker::Exception& e) {
-    // no chunk data or unsupported feature
-    auto& nodeMap = camera_->GetNodeMap();
-    GenApi::CEnumerationPtr lineSelector = nodeMap.GetNode("LineSelector");
-    if (GenApi::IsWritable(lineSelector)) {
-      lineSelector->FromString("Line0");
+    } catch (const Spinnaker::Exception& e) {
+        // --- Fallback path for cameras with NO chunk data (e.g. FLIR AX5)
+        auto& nodeMap = camera_->GetNodeMap();
+
+        // Exposure time
+        GenApi::CFloatPtr exposureTimeNode = nodeMap.GetNode("ExposureTime");
+        if (GenApi::IsReadable(exposureTimeNode)) {
+            expTime = exposureTimeNode->GetValue();
+        }
+
+        // Gain
+        GenApi::CFloatPtr gainNode = nodeMap.GetNode("Gain");
+        if (GenApi::IsReadable(gainNode)) {
+            gain = gainNode->GetValue();
+        }
+
+        // Timestamp (use image pointer’s host timestamp)
+        stamp = imgPtr->GetTimeStamp();
+
+        // Line status (GPIO)
+        GenApi::CEnumerationPtr lineSelector = nodeMap.GetNode("LineSelector");
+        if (GenApi::IsWritable(lineSelector)) {
+            lineSelector->FromString("Line0");
+        }
+        GenApi::CBooleanPtr lineStatusNode = nodeMap.GetNode("LineStatus");
+        if (GenApi::IsReadable(lineStatusNode)) {
+            lineStatus = lineStatusNode->GetValue() ? 1 : 0;
+        }
     }
-    GenApi::CBooleanPtr lineStatusNode = nodeMap.GetNode("LineStatus");
-    if (GenApi::IsReadable(lineStatusNode)) {
-      lineStatus = lineStatusNode->GetValue() ? 1 : 0;
-    }
-  }
 
   const uint32_t maxExpTime =
     static_cast<uint32_t>(is_readable(exposureTimeNode_) ? exposureTimeNode_->GetMax() : 0);
