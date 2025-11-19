@@ -129,6 +129,19 @@ target_include_directories(camera_driver_node
   $<INSTALL_INTERFACE:include>
 )
 
+#
+# standalone camera reset node
+#
+add_executable(camera_reset_node
+  src/camera_reset_node.cpp)
+
+target_link_libraries(camera_reset_node PUBLIC camera_driver PRIVATE Spinnaker::Spinnaker)
+
+target_include_directories(camera_reset_node
+  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
 target_include_directories(camera_driver PRIVATE include)
 
 if(SPINNAKER_WAS_DOWNLOADED)
@@ -143,6 +156,7 @@ endif()
 
 install(TARGETS
   camera_driver_node
+  camera_reset_node
   DESTINATION lib/${PROJECT_NAME}/)
 
 # the shared library goes into the global lib dir so it can

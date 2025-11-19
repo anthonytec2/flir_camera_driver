@@ -480,7 +480,21 @@ bool SpinnakerWrapperImpl::deInitCamera()
   if (!camera_) {
     return (false);
   }
+  // De-initialize the currently opened camera and clear the handle so that
+  // another camera can be initialized afterwards.
+  //
+  // Without resetting camera_ to nullptr, subsequent calls to initCamera()
+  // will immediately fail due to the check at the top of that function:
+  //
+  //   if (camera_) {
+  //     return false;
+  //   }
+  //
+  // This broke use-cases where multiple cameras are initialized one after
+  // another in the same process (e.g. the camera_reset_node resetting a list
+  // of serial numbers).
   camera_->DeInit();
+  camera_ = 0;
   return (true);
 }
 
