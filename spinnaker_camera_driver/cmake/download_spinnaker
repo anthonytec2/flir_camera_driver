@@ -53,7 +53,7 @@ ARCH_LINUX_ARCH = {
 arch = sys.argv[1]
 destination_folder = sys.argv[2]
 os_code_name = sys.argv[3]
-spinnaker_version='4.2.0.46'
+spinnaker_version='4.2.0.88'
 
 linux_arch = ARCH_LINUX_ARCH[arch]
 os_version = OS_LIBRARY_VERSION[os_code_name]
