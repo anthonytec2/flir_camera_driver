@@ -57,7 +57,7 @@ spinnaker_version='4.2.0.46'
 
 linux_arch = ARCH_LINUX_ARCH[arch]
 os_version = OS_LIBRARY_VERSION[os_code_name]
-archive_url = f'https://pfrommer.us/Spinnaker/spinnaker-{spinnaker_version}-{linux_arch}-pkg-{os_version}.tar.gz'
+archive_url = f'https://flir.netx.net/file/asset/71711/original/attachment'
 print('archive url: ', archive_url)
 folder_name = f'spinnaker-{spinnaker_version}-{linux_arch}'
 
